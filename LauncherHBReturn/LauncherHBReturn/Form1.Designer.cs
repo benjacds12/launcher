@@ -144,7 +144,8 @@ namespace LauncherHBReturn
             this.AutoScaleDimensions  = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode        = System.Windows.Forms.AutoScaleMode.Font;
             this.BackgroundImage      = ((System.Drawing.Image)(resources.GetObject("$this.BackgroundImage")));
-            this.BackgroundImageLayout= System.Windows.Forms.ImageLayout.Stretch;
+            this.BackgroundImageLayout= System.Windows.Forms.ImageLayout.Zoom;
+            this.BackColor            = System.Drawing.Color.FromArgb(10, 10, 18);
             this.ClientSize           = new System.Drawing.Size(800, 460);
             this.FormBorderStyle      = System.Windows.Forms.FormBorderStyle.None;
             this.Name                 = "Form1";
