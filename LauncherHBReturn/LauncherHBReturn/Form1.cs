@@ -1,197 +1,307 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Data;
+using System;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using System.Net;
-using System.Security.Cryptography;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Windows.Forms;
-using Microsoft.Win32; // Para tocar el Registro de Windows
 
 namespace LauncherHBReturn
 {
+    // Datos leidos del manifest.json del servidor
+    class Manifest
+    {
+        public int    Version   { get; set; }
+        public string ClientUrl { get; set; }
+    }
+
     public partial class Form1 : Form
     {
-        // --- Configuración del Servidor ---
-        string urlVersion = "http://38.180.186.144:2848/version.txt";
-        string urlZip = "http://38.180.186.144:2848/update.zip";
-        string urlHashes = "http://38.180.186.144:2848/hashes.txt"; // Acá lee la seguridad
-        string archivoZipLocal = "update.zip";
-        string archivoVersionLocal = "version.txt";
-        string ejecutableJuego = "Helbreath Return BETA.exe";
+        // ---- Configuracion del servidor ----
+        const string URL_MANIFEST = "http://38.180.186.144:2848/manifest.json";
+        const string EJECUTABLE   = "Helbreath Return BETA.exe";
+        const string ARCHIVO_ZIP  = "update.zip";
+        const string ARCHIVO_VER  = ".launcher_ver";   // archivo oculto con version local
+
+        // Para arrastrar la ventana sin borde
+        private Point _dragOffset;
 
         public Form1()
         {
             InitializeComponent();
         }
 
+        // -----------------------------------------------------------
+        // Inicio
+        // -----------------------------------------------------------
         private void Form1_Load(object sender, EventArgs e)
         {
             btnJugar.Enabled = false;
-            ComprobarActualizacion();
+            ColorearBarra(barraProgreso, Color.FromArgb(184, 134, 11)); // dorado
+
+            // Arrastrar ventana borderless desde cualquier zona
+            SubscribirDrag(this);
+            SubscribirDrag(panelBottom);
+            SubscribirDrag(lblTitulo);
+
+            Task.Run(() => ComprobarActualizacion());
         }
 
+        // -----------------------------------------------------------
+        // Logica principal de actualizacion
+        // -----------------------------------------------------------
         private void ComprobarActualizacion()
         {
             try
             {
-                // 1. Intentar leer del Registro
-                object regValue = Registry.GetValue(@"HKEY_CURRENT_USER\Software\LauncherHBReturn", "Version", null);
-                int versionLocal = 0;
-
-                if (regValue != null)
+                SetStatus("Conectando al servidor...");
+                Manifest m;
+                using (var wc = new WebClient())
                 {
-                    versionLocal = (int)regValue;
-                }
-                else if (File.Exists(archivoVersionLocal))
-                {
-                    // 2. Si no hay registro, intentar leer del archivo físico
-                    int.TryParse(File.ReadAllText(archivoVersionLocal), out versionLocal);
+                    string json = wc.DownloadString(URL_MANIFEST);
+                    m = ParseManifest(json);
                 }
 
-                using (WebClient cliente = new WebClient())
+                SetVersion("v" + m.Version);
+                int local = LeerVersionLocal();
+
+                if (local < m.Version)
                 {
-                    string versionServerTexto = cliente.DownloadString(urlVersion).Trim();
-                    int versionServer = int.Parse(versionServerTexto);
-
-                    if (versionLocal < versionServer)
-                    {
-                        lblEstado.Text = "Actualizando a la versión " + versionServer + "...";
-                        cliente.DownloadFileCompleted += (s, ev) => { FinalizarActualizacion(); };
-                        cliente.DownloadFileAsync(new Uri(urlZip), archivoZipLocal);
-                    }
-                    else
-                    {
-                        ValidarIntegridad();
-                    }
-                }
-            }
-            catch { ValidarIntegridad(); }
-        }
-
-        private void ValidarIntegridad()
-        {
-            try
-            {
-                lblEstado.Text = "Verificando seguridad remota...";
-                Dictionary<string, string> hashesRemotos = new Dictionary<string, string>();
-
-                using (WebClient cliente = new WebClient())
-                {
-                    // Descargamos la lista de códigos del VPS
-                    string contenido = cliente.DownloadString(urlHashes);
-                    string[] lineas = contenido.Split(new[] { "\n", "\r\n" }, StringSplitOptions.RemoveEmptyEntries);
-
-                    foreach (string linea in lineas)
-                    {
-                        string[] partes = linea.Split(':');
-                        if (partes.Length == 2) hashesRemotos.Add(partes[0].Trim(), partes[1].Trim());
-                    }
-                }
-
-                bool todoOk = true;
-                foreach (var item in hashesRemotos)
-                {
-                    // Comparamos la carpeta local con el código del VPS
-                    if (ChecksumCarpeta(item.Key) != item.Value)
-                    {
-                        lblEstado.Text = "Error en carpeta: " + item.Key + ". Reparando...";
-                        todoOk = false;
-                        break;
-                    }
-                }
-
-                if (!todoOk)
-                {
-                    btnJugar.Enabled = false;
-                    MessageBox.Show("Archivos modificados detectados. Se requiere reinstalar el cliente.");
-                    // FinalizarActualizacion(); // Descomentá esto si querés que descargue el ZIP automáticamente al detectar cheat
+                    SetStatus("Nueva version disponible (v" + m.Version + "). Descargando...");
+                    Descargar(m.ClientUrl, m.Version);
                 }
                 else
                 {
-                    lblEstado.Text = "Archivos verificados. ¡Bienvenido!";
-                    btnJugar.Enabled = true;
+                    SetStatus("Todo al dia. Bienvenido!");
+                    SetProgress(100);
+                    HabilitarJugar(true);
                 }
-            }
-            catch (Exception)
-            {
-                lblEstado.Text = "Error al verificar seguridad.";
-                btnJugar.Enabled = false;
-            }
-        }
-
-        private void FinalizarActualizacion()
-        {
-            try
-            {
-                lblEstado.Text = "Instalando archivos...";
-                using (ZipArchive archivo = ZipFile.OpenRead(archivoZipLocal))
-                {
-                    foreach (ZipArchiveEntry entrada in archivo.Entries)
-                    {
-                        string rutaDestino = Path.Combine(Application.StartupPath, entrada.FullName);
-                        if (string.IsNullOrEmpty(entrada.Name)) { Directory.CreateDirectory(rutaDestino); continue; }
-                        if (File.Exists(rutaDestino)) File.Delete(rutaDestino);
-                        entrada.ExtractToFile(rutaDestino);
-                    }
-                }
-
-                if (File.Exists(archivoZipLocal)) File.Delete(archivoZipLocal);
-
-                // Guardamos la nueva versión tanto en el Registro como en un archivo local
-                using (WebClient cliente = new WebClient())
-                {
-                    string versionServerTexto = cliente.DownloadString(urlVersion).Trim();
-                    int versionServer = int.Parse(versionServerTexto);
-
-                    // 1. Guardar en el Registro de Windows (lo que ya tenías)
-                    Registry.SetValue(@"HKEY_CURRENT_USER\Software\LauncherHBReturn", "Version", versionServer);
-
-                    // 2. CREAR EL ARCHIVO FISICO (Para que aparezca en la carpeta)
-                    File.WriteAllText(archivoVersionLocal, versionServer.ToString());
-
-                    // 3. OPCIONAL: Hacer que el archivo sea OCULTO para protegerlo
-                    File.SetAttributes(archivoVersionLocal, FileAttributes.Hidden);
-                }
-
-                lblEstado.Text = "¡Actualización terminada!";
-                ValidarIntegridad();
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error al instalar: " + ex.Message);
-            }
-        }
-
-        private string ChecksumCarpeta(string ruta)
-        {
-            if (!Directory.Exists(ruta)) return "0";
-            var archivos = Directory.GetFiles(ruta, "*.*", SearchOption.AllDirectories).OrderBy(p => p).ToList();
-            using (var md5 = MD5.Create())
-            {
-                foreach (var archivo in archivos)
+                SetStatus("Error al conectar: " + ex.Message);
+                // Si ya hay una version local instalada, permite jugar igual
+                if (LeerVersionLocal() > 0)
                 {
-                    byte[] contentBytes = File.ReadAllBytes(archivo);
-                    md5.TransformBlock(contentBytes, 0, contentBytes.Length, contentBytes, 0);
+                    SetStatus("Sin conexion. Usando version local.");
+                    HabilitarJugar(true);
                 }
-                md5.TransformFinalBlock(new byte[0], 0, 0);
-                return BitConverter.ToString(md5.Hash).Replace("-", "").ToLower();
             }
         }
 
+        private void Descargar(string url, int nuevaVersion)
+        {
+            try
+            {
+                using (var wc = new WebClient())
+                {
+                    wc.DownloadProgressChanged += (s, e) =>
+                    {
+                        SetProgress(e.ProgressPercentage);
+                        long mb    = e.BytesReceived / 1024 / 1024;
+                        long total = e.TotalBytesToReceive > 0 ? e.TotalBytesToReceive / 1024 / 1024 : 0;
+                        SetStatus("Descargando... " + mb + " MB / " + total + " MB  (" + e.ProgressPercentage + "%)");
+                    };
+
+                    wc.DownloadFileCompleted += (s, e) =>
+                    {
+                        if (e.Error != null)
+                        {
+                            SetStatus("Error al descargar: " + e.Error.Message);
+                            return;
+                        }
+                        Instalar(nuevaVersion);
+                    };
+
+                    wc.DownloadFileAsync(new Uri(url), ARCHIVO_ZIP);
+                }
+            }
+            catch (Exception ex)
+            {
+                SetStatus("Error: " + ex.Message);
+            }
+        }
+
+        private void Instalar(int nuevaVersion)
+        {
+            try
+            {
+                SetStatus("Instalando archivos...");
+                SetProgress(0);
+
+                using (ZipArchive zip = ZipFile.OpenRead(ARCHIVO_ZIP))
+                {
+                    int total = zip.Entries.Count;
+                    int i = 0;
+                    foreach (ZipArchiveEntry entrada in zip.Entries)
+                    {
+                        string destino = Path.Combine(Application.StartupPath, entrada.FullName);
+                        if (string.IsNullOrEmpty(entrada.Name))
+                        {
+                            Directory.CreateDirectory(destino);
+                        }
+                        else
+                        {
+                            string dir = Path.GetDirectoryName(destino);
+                            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                            if (File.Exists(destino)) File.Delete(destino);
+                            entrada.ExtractToFile(destino);
+                        }
+                        i++;
+                        SetProgress(i * 100 / total);
+                    }
+                }
+
+                if (File.Exists(ARCHIVO_ZIP)) File.Delete(ARCHIVO_ZIP);
+                GuardarVersionLocal(nuevaVersion);
+                SetVersion("v" + nuevaVersion);
+                SetStatus("Actualizacion instalada correctamente!");
+                SetProgress(100);
+                HabilitarJugar(true);
+            }
+            catch (Exception ex)
+            {
+                SetStatus("Error al instalar: " + ex.Message);
+            }
+        }
+
+        // -----------------------------------------------------------
+        // Version local  (archivo oculto .launcher_ver)
+        // -----------------------------------------------------------
+        private int LeerVersionLocal()
+        {
+            try
+            {
+                string path = Path.Combine(Application.StartupPath, ARCHIVO_VER);
+                if (File.Exists(path) && int.TryParse(File.ReadAllText(path).Trim(), out int v))
+                    return v;
+            }
+            catch { }
+            return 0;
+        }
+
+        private void GuardarVersionLocal(int version)
+        {
+            try
+            {
+                string path = Path.Combine(Application.StartupPath, ARCHIVO_VER);
+                File.WriteAllText(path, version.ToString());
+                File.SetAttributes(path, FileAttributes.Hidden);
+            }
+            catch { }
+        }
+
+        // -----------------------------------------------------------
+        // Parseo de manifest.json sin dependencias externas
+        // -----------------------------------------------------------
+        private Manifest ParseManifest(string json)
+        {
+            var m = new Manifest();
+            var verMatch = Regex.Match(json, "\"version\"\\s*:\\s*(\\d+)");
+            var urlMatch = Regex.Match(json, "\"clientUrl\"\\s*:\\s*\"([^\"]+)\"");
+            if (verMatch.Success) m.Version   = int.Parse(verMatch.Groups[1].Value);
+            if (urlMatch.Success) m.ClientUrl = urlMatch.Groups[1].Value;
+            return m;
+        }
+
+        // -----------------------------------------------------------
+        // Helpers thread-safe para actualizar controles de UI
+        // -----------------------------------------------------------
+        private void SetStatus(string texto)
+        {
+            if (lblEstado.InvokeRequired)
+                lblEstado.Invoke(new Action(() => lblEstado.Text = texto));
+            else
+                lblEstado.Text = texto;
+        }
+
+        private void SetProgress(int valor)
+        {
+            if (barraProgreso.InvokeRequired)
+                barraProgreso.Invoke(new Action(() => barraProgreso.Value = Math.Max(0, Math.Min(valor, 100))));
+            else
+                barraProgreso.Value = Math.Max(0, Math.Min(valor, 100));
+        }
+
+        private void SetVersion(string texto)
+        {
+            if (lblVersion.InvokeRequired)
+                lblVersion.Invoke(new Action(() => lblVersion.Text = texto));
+            else
+                lblVersion.Text = texto;
+        }
+
+        private void HabilitarJugar(bool habilitar)
+        {
+            if (btnJugar.InvokeRequired)
+                btnJugar.Invoke(new Action(() => btnJugar.Enabled = habilitar));
+            else
+                btnJugar.Enabled = habilitar;
+        }
+
+        // -----------------------------------------------------------
+        // Color personalizado en la ProgressBar (via WinAPI)
+        // -----------------------------------------------------------
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        private void ColorearBarra(ProgressBar pb, Color color)
+        {
+            SendMessage(pb.Handle, 0x0409 /*PBM_SETBARCOLOR*/, IntPtr.Zero,
+                        (IntPtr)System.Drawing.ColorTranslator.ToWin32(color));
+            SendMessage(pb.Handle, 0x2001 /*PBM_SETBKCOLOR*/, IntPtr.Zero,
+                        (IntPtr)System.Drawing.ColorTranslator.ToWin32(Color.FromArgb(35, 35, 50)));
+        }
+
+        // -----------------------------------------------------------
+        // Drag ventana sin borde
+        // -----------------------------------------------------------
+        private void SubscribirDrag(Control c)
+        {
+            c.MouseDown += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                    _dragOffset = new Point(-e.X, -e.Y);
+            };
+            c.MouseMove += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    Point p = Control.MousePosition;
+                    p.Offset(_dragOffset);
+                    Location = p;
+                }
+            };
+        }
+
+        // -----------------------------------------------------------
+        // Eventos de botones
+        // -----------------------------------------------------------
         private void btnJugar_Click(object sender, EventArgs e)
         {
-            if (File.Exists(ejecutableJuego))
+            string path = Path.Combine(Application.StartupPath, EJECUTABLE);
+            if (File.Exists(path))
             {
-                Process.Start(ejecutableJuego, "BenjaminSecretKey");
+                Process.Start(path, "BenjaminSecretKey");
                 Application.Exit();
             }
-            else { MessageBox.Show("No se encuentra el ejecutable."); }
+            else
+            {
+                MessageBox.Show("No se encuentra el ejecutable del juego.", "Error",
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
-        private void btnJugar_Click_1(object sender, EventArgs e) { btnJugar_Click(sender, e); }
-        private void lblEstado_Click(object sender, EventArgs e) { }
+        private void btnCerrar_Click(object sender, EventArgs e)
+        {
+            Application.Exit();
+        }
+
+        private void btnMinimizar_Click(object sender, EventArgs e)
+        {
+            WindowState = FormWindowState.Minimized;
+        }
     }
 }
