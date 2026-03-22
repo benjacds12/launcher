@@ -10,13 +10,6 @@ using System.Windows.Forms;
 
 namespace LauncherHBReturn
 {
-    // Datos leidos del manifest.json del servidor
-    class Manifest
-    {
-        public int    Version   { get; set; }
-        public string ClientUrl { get; set; }
-    }
-
     public partial class Form1 : Form
     {
         // ---- Configuracion del servidor ----
@@ -303,5 +296,11 @@ namespace LauncherHBReturn
         {
             WindowState = FormWindowState.Minimized;
         }
+    }
+
+    class Manifest
+    {
+        public int    Version   { get; set; }
+        public string ClientUrl { get; set; }
     }
 }
