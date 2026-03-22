@@ -1,0 +1,10 @@
+C:\Users\Benjamin\Desktop\hb\HB Client Source\LauncherHBReturn\LauncherHBReturn\bin\Release\LauncherHBReturn.exe.config
+C:\Users\Benjamin\Desktop\hb\HB Client Source\LauncherHBReturn\LauncherHBReturn\bin\Release\LauncherHBReturn.exe
+C:\Users\Benjamin\Desktop\hb\HB Client Source\LauncherHBReturn\LauncherHBReturn\bin\Release\LauncherHBReturn.pdb
+C:\Users\Benjamin\Desktop\hb\HB Client Source\LauncherHBReturn\LauncherHBReturn\obj\Release\LauncherHBReturn.csproj.AssemblyReference.cache
+C:\Users\Benjamin\Desktop\hb\HB Client Source\LauncherHBReturn\LauncherHBReturn\obj\Release\LauncherHBReturn.Form1.resources
+C:\Users\Benjamin\Desktop\hb\HB Client Source\LauncherHBReturn\LauncherHBReturn\obj\Release\LauncherHBReturn.Properties.Resources.resources
+C:\Users\Benjamin\Desktop\hb\HB Client Source\LauncherHBReturn\LauncherHBReturn\obj\Release\LauncherHBReturn.csproj.GenerateResource.cache
+C:\Users\Benjamin\Desktop\hb\HB Client Source\LauncherHBReturn\LauncherHBReturn\obj\Release\LauncherHBReturn.csproj.CoreCompileInputs.cache
+C:\Users\Benjamin\Desktop\hb\HB Client Source\LauncherHBReturn\LauncherHBReturn\obj\Release\LauncherHBReturn.exe
+C:\Users\Benjamin\Desktop\hb\HB Client Source\LauncherHBReturn\LauncherHBReturn\obj\Release\LauncherHBReturn.pdb
